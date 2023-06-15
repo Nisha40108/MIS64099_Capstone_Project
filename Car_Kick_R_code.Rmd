@@ -1,0 +1,677 @@
+---
+title: "Capstone Project"
+author: "Group 5"
+date: "2023-06-11"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+#Loading Required Packages
+```{r}
+rm(list = ls()) #cleaning the environment
+library(readr)
+library(tidyverse)
+library(caret)
+library(knitr)
+library(class)  
+library(ggplot2)
+library(ggcorrplot)
+library(dplyr)
+library(e1071)
+library(reshape2)
+library(caret)
+library(factoextra)
+library(cluster)
+library(cowplot)
+library(pander)
+library(kernlab)
+library(tidyr)
+library(fastDummies)
+library(FactoMineR)
+library(ROCR)
+library(pROC)
+library(rpart)
+library(cutpointr)
+library(ROSE)
+library(writexl)
+library(mice)
+library(VIM)
+library(lattice)
+library(gmodels)
+library(rpart)
+library(rpart.plot)
+library(e1071)
+library(corrplot)
+library(psych)
+```
+#Importing the Car's bad buy , good buy dataset.
+```{r}
+setwd("C:/Users/Chaur/OneDrive/Desktop/Capstone_Project")  #set working directory
+Car_data <- read.csv("car_kick.csv")  #load the data
+head(Car_data)
+dim(Car_data)
+```
+#Understanging the structure and summary of the Training dataset, Also Figuring out the Missing Values
+```{r}
+str(Car_data)#To see the structure of data set 
+
+summary(Car_data)#To see the summary (min, max and mean, median of the variable)
+
+colMeans(is.na(Car_data))#Return percentage of each dimension that is missing values
+aggr(Car_data, col = mdc(1:2), numbers = TRUE, sortVars = TRUE, labels = names(Car_data), cex.axis = .7, gap = 3, ylab = c("Proportion of Missingness", "Missing Pattern")) #There are no missing values
+```
+#"Class" is our target variable : “0” means “Good Buy” and “1” means “Bad Buy” or Kicked Cars - Check for share of good buy or bad buy in the entire data
+```{r}
+#Number of class count of "0" as good cars/"1" as bad cars
+Count_Class <-table(Car_data$Class)
+Count_Class_prop <- prop.table(Count_Class)
+Count_Class #483 Customers churn
+Count_Class_prop
+
+barplot(Count_Class, 
+        main = "Class Count", 
+        xlab = "Class", 
+        ylab = "Count", 
+        col = "steelblue",
+        cex.names = 0.8,
+        cex.axis = 0.8,  
+        width = 0.3) #“0” means “Good Buy” and “1” means “Bad Buy”
+```
+#Creating two different dataset (1) Car_num : All numerical Variabls (2)Car_char : All Categorical Variables 
+```{r}
+t(t(names(Car_data)))#column names 
+Car_num <- Car_data[,c(2:14,22,27,28,30,31)]#Numerical variables
+
+Car_char <- Car_data[,c(15:21,23:26,27,29,31)]#Categorical variables 
+
+#Checking the categories for variables seems useful for the analysis  
+unique(Car_char$Auction)
+unique(Car_char$Make)
+unique(Car_char$Transmission)
+unique(Car_char$WheelType)
+unique(Car_char$Nationality)
+unique(Car_char$Size)
+unique(Car_char$TopThreeAmericanName)
+unique(Car_char$VNST)
+```
+#Data Visualization : Categorical variables
+```{r}
+#buy rate by Auction Companies
+Car_char$Class <- as.factor(Car_char$Class) #Converting "Class into Factor"
+Good_buy <- subset(Car_char, Class == 0)
+Bad_buy <- subset(Car_char, Class == 1)
+Bad_buy_Auction_comp <- Bad_buy %>% group_by(Auction) %>% summarise(buy_count = n())
+Good_buy_Auction_comp <- Good_buy %>% group_by(Auction) %>% summarise(buy_count = n())
+
+total_bad_buy <- sum(Bad_buy_Auction_comp$buy_count)
+total_good_buy <- sum(Good_buy_Auction_comp$buy_count)
+
+Bad_buy_Auction_comp$buy_percentage <- (Bad_buy_Auction_comp$buy_count / total_bad_buy) * 100
+Good_buy_Auction_comp$buy_percentage <- (Good_buy_Auction_comp$buy_count / total_good_buy) * 100
+
+merged_Auction <- rbind(transform(Good_buy_Auction_comp, Buy_Type = "Good_buy"),
+                     transform(Bad_buy_Auction_comp, Buy_Type = "Bad_buy"))
+
+ggplot(merged_Auction, aes(x = Auction, y = buy_percentage, fill = Buy_Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Auction Companies ", y = "%share", fill = "Buy Type") +
+  ggtitle("Buy Percentage by Auction companies and Buy Type")# Create bar plot using ggplot
+
+
+#buy rate by Car Makers
+Bad_buy_Make <- Bad_buy %>% group_by(Make) %>% summarise(buy_count = n())
+Good_buy_Make <- Good_buy %>% group_by(Make) %>% summarise(buy_count = n())
+
+total_bad_buy <- sum(Bad_buy_Make$buy_count)
+total_good_buy <- sum(Good_buy_Make$buy_count)
+
+Bad_buy_Make$buy_percentage <- (Bad_buy_Make$buy_count / total_bad_buy) * 100
+Good_buy_Make$buy_percentage <- (Good_buy_Make$buy_count / total_good_buy) * 100
+
+merged_Make <- rbind(transform(Good_buy_Make, Buy_Type = "Good_buy"),
+                     transform(Bad_buy_Make, Buy_Type = "Bad_buy"))
+
+ggplot(merged_Make, aes(x = Make, y = buy_percentage, fill = Buy_Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Makers", y = "% Share", fill = "Buy Type") +
+  ggtitle("Buy Percentage by Makers and Buy Type") +
+  theme_light() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(size = 6, angle = 90, vjust = 0.5, hjust = 1),
+    axis.text.y = element_text(size = 6),
+    axis.title.x = element_text(size = 10),
+    axis.title.y = element_text(size = 10),
+    plot.title = element_text(size = 16, face = "bold")
+  )
+
+#buy rate by Transmission
+Bad_buy_Transmission <- Bad_buy %>% group_by(Transmission) %>% summarise(buy_count = n())
+Good_buy_Transmission <- Good_buy %>% group_by(Transmission) %>% summarise(buy_count = n())
+
+total_bad_buy <- sum(Bad_buy_Transmission$buy_count)
+total_good_buy <- sum(Good_buy_Transmission$buy_count)
+
+Bad_buy_Transmission$buy_percentage <- (Bad_buy_Transmission$buy_count / total_bad_buy) * 100
+Good_buy_Transmission$buy_percentage <- (Good_buy_Transmission$buy_count / total_good_buy) * 100
+
+merged_Transmission <- rbind(transform(Good_buy_Transmission, Buy_Type = "Good_buy"),
+                              transform(Bad_buy_Transmission, Buy_Type = "Bad_buy"))
+
+merged_Transmission1 <- subset(merged_Transmission, Transmission != "Manual")
+
+ggplot(merged_Transmission1, aes(x = Transmission, y = buy_percentage, fill = Buy_Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Transmission ", y = "%share", fill = "Buy Type") +
+  ggtitle("Buy Percentage by Transmission and Buy Type")
+
+
+#buy rate by Wheeltype
+Bad_buy_WheelType <- Bad_buy %>% group_by(WheelType) %>% summarise(buy_count = n())
+Good_buy_WheelType <- Good_buy %>% group_by(WheelType) %>% summarise(buy_count = n())
+
+total_bad_buy <- sum(Bad_buy_WheelType$buy_count)
+total_good_buy <- sum(Good_buy_WheelType$buy_count)
+
+Bad_buy_WheelType$buy_percentage <- (Bad_buy_WheelType$buy_count / total_bad_buy) * 100
+Good_buy_WheelType$buy_percentage <- (Good_buy_WheelType$buy_count / total_good_buy) * 100
+
+merged_WheelType <- rbind(transform(Good_buy_WheelType, Buy_Type = "Good_buy"),
+                          transform(Bad_buy_WheelType, Buy_Type = "Bad_buy"))
+ggplot(merged_WheelType, aes(x = WheelType, y = buy_percentage, fill = Buy_Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Wheel Type", y = "% Share", fill = "Buy Type") +
+  ggtitle("Buy Percentage by Wheel Type and Buy Type")# Create bar plot using ggplot
+
+#buy rate by Nationality
+Bad_buy_Nationality <- Bad_buy %>% group_by(Nationality) %>% summarise(buy_count = n())
+Good_buy_Nationality <- Good_buy %>% group_by(Nationality) %>% summarise(buy_count = n())
+
+total_bad_buy <- sum(Bad_buy_Nationality$buy_count)
+total_good_buy <- sum(Good_buy_Nationality$buy_count)
+
+Bad_buy_Nationality$buy_percentage <- (Bad_buy_Nationality$buy_count / total_bad_buy) * 100
+Good_buy_Nationality$buy_percentage <- (Good_buy_Nationality$buy_count / total_good_buy) * 100
+
+merged_Nationality <- rbind(transform(Good_buy_Nationality, Buy_Type = "Good_buy"),
+                            transform(Bad_buy_Nationality, Buy_Type = "Bad_buy"))
+
+
+ggplot(merged_Nationality, aes(x = Nationality, y = buy_percentage, fill = Buy_Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Nationality", y = "% Share", fill = "Buy Type") +
+  ggtitle("Buy Percentage by Nationality and Buy Type")# Create bar plot using ggplot
+
+
+#buy rate by Size
+Bad_buy_Size <- Bad_buy %>% group_by(Size) %>% summarise(buy_count = n())
+Good_buy_Size <- Good_buy %>% group_by(Size) %>% summarise(buy_count = n())
+
+total_bad_buy <- sum(Bad_buy_Size$buy_count)
+total_good_buy <- sum(Good_buy_Size$buy_count)
+
+Bad_buy_Size$buy_percentage <- (Bad_buy_Size$buy_count / total_bad_buy) * 100
+Good_buy_Size$buy_percentage <- (Good_buy_Size$buy_count / total_good_buy) * 100
+
+merged_Size <- rbind(transform(Good_buy_Size, Buy_Type = "Good_buy"),
+                     transform(Bad_buy_Size, Buy_Type = "Bad_buy"))
+
+ggplot(merged_Size, aes(x = Size, y = buy_percentage, fill = Buy_Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Size", y = "% Share", fill = "Buy Type") +
+  ggtitle("Buy Percentage by Size and Buy Type") +
+  theme_light() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(size = 6, angle = 90, vjust = 0.5, hjust = 1),
+    axis.text.y = element_text(size = 6),
+    axis.title.x = element_text(size = 10),
+    axis.title.y = element_text(size = 10),
+    plot.title = element_text(size = 16, face = "bold")
+  )
+
+#buy rate by top 3 American Name 
+Bad_buy_topamericanname <- Bad_buy %>% group_by(TopThreeAmericanName) %>% summarise(buy_count = n())
+Good_buy_topamericanname <- Good_buy %>% group_by(TopThreeAmericanName) %>% summarise(buy_count = n())
+
+total_bad_buy <- sum(Bad_buy_topamericanname$buy_count)
+total_good_buy <- sum(Good_buy_topamericanname$buy_count)
+
+Bad_buy_topamericanname$buy_percentage <- (Bad_buy_topamericanname$buy_count / total_bad_buy) * 100
+Good_buy_topamericanname$buy_percentage <- (Good_buy_topamericanname$buy_count / total_good_buy) * 100
+
+merged_topamericanname <- rbind(transform(Good_buy_topamericanname, Buy_Type = "Good_buy"),
+                            transform(Bad_buy_topamericanname, Buy_Type = "Bad_buy"))
+
+ggplot(merged_topamericanname, aes(x = TopThreeAmericanName, y = buy_percentage, fill = Buy_Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Top 3 American Name", y = "% Share", fill = "Buy Type") +
+  ggtitle("Buy Percentage by Top 3 American Name and Buy Type")
+
+
+#buy rate by States
+Bad_buy_VNST <- Bad_buy %>% group_by(VNST) %>% summarise(buy_count = n())
+Good_buy_VNST <- Good_buy %>% group_by(VNST) %>% summarise(buy_count = n())
+
+total_bad_buy <- sum(Bad_buy_VNST$buy_count)
+total_good_buy <- sum(Good_buy_VNST$buy_count)
+
+Bad_buy_VNST$buy_percentage <- (Bad_buy_VNST$buy_count / total_bad_buy) * 100
+Good_buy_VNST$buy_percentage <- (Good_buy_VNST$buy_count / total_good_buy) * 100
+
+merged_VNST <- rbind(transform(Good_buy_VNST, Buy_Type = "Good_buy"),
+                     transform(Bad_buy_VNST, Buy_Type = "Bad_buy"))
+
+ggplot(merged_VNST, aes(x = VNST, y = buy_percentage, fill = Buy_Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "VNST", y = "% Share", fill = "Buy Type") +
+  ggtitle("Buy Percentage by VNST and Buy Type") +
+  theme_light() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(size = 6, angle = 90, vjust = 0.5, hjust = 1),
+    axis.text.y = element_text(size = 6),
+    axis.title.x = element_text(size = 10),
+    axis.title.y = element_text(size = 10),
+    plot.title = element_text(size = 16, face = "bold")
+  )
+```
+#Data Visualization : numerical variables  
+```{r}
+#correlations amoung feetures
+t(t(names(Car_num)))#column names 
+names(Car_num)[4] <- "MMRAAAP"
+names(Car_num)[5] <- "MMRAACP"
+names(Car_num)[6] <- "MMRARAP"
+names(Car_num)[7] <- "MMRARCP"
+names(Car_num)[8] <- "MMRCAAP"
+names(Car_num)[9] <- "MMRCACP"
+names(Car_num)[10] <- "MMRCRAP"
+names(Car_num)[11] <- "MMRCRCP"
+
+
+par(mar = c(6, 4, 3, 2) + 0.5)
+cor_matrix <- round(cor(Car_num), 2)
+corrplot(cor_matrix, method = "color", type = "upper", tl.col = "black",
+         tl.srt = 50, tl.cex = 0.6, diag = FALSE, outline = TRUE,
+         col = colorRampPalette(c("seagreen", "white", "firebrick3"))(50),
+         addCoef.col = "black", number.cex = 0.5)
+title("Correlations Among Features", line = 2.7, cex.main = 1)
+
+
+#Summary table showing the median of each variable
+Car_num$Class <- as.factor(Car_num$Class)
+Car_num$IsOnlineSale <- as.factor(Car_num$IsOnlineSale)
+
+#Also checking the proportion for Online sale for Class(good buy or bad buy)
+Online_Sale <- table(IsOnlineSale = Car_num$IsOnlineSale, Class= Car_num$Class )
+Online_Sale_prop <- prop.table(Online_Sale)
+Online_Sale
+Online_Sale_prop
+
+
+
+Var_table <- Car_num[,c(1:16,18)] %>% group_by(Class) %>% summarize(across(.cols = everything(), .fns = mean))
+print(Var_table)
+
+# Create bar graph
+VehYear <- ggplot(Var_table, aes(x = Class, y = VehYear)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "VehYear") +
+  ggtitle("Vehical Year")
+
+VehicleAge <- ggplot(Var_table, aes(x = Class, y = VehicleAge)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "VehicleAge") +
+  ggtitle("Vehical age") #Slight high for bad buy data 
+
+VehOdo <- ggplot(Var_table, aes(x = Class, y = VehOdo)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "VehOdo") +
+  ggtitle("Vehical drove in km") #slight high for bad buy 
+
+MMRAcquisitionAuctionAveragePrice <- ggplot(Var_table, aes(x = Class, y = MMRAAAP)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "MMRAAAP") +
+  ggtitle("Acquisition Auction Average Price")#low for bad Buy
+
+MMRAcquisitionAuctionCleanPrice <- ggplot(Var_table, aes(x = Class, y = MMRAACP)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "MMRAACP") +
+  ggtitle("Acquisition Auction Clean Price")
+
+MMRAcquisitionRetailAveragePrice <- ggplot(Var_table, aes(x = Class, y = MMRARAP)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "MMRARAP") +
+  ggtitle("Acquisition Retail Average Price")
+
+MMRAcquisitonRetailCleanPrice <- ggplot(Var_table, aes(x = Class, y = MMRARCP)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "MMRARCP") +
+  ggtitle("Acquisiton Retail Clean Price")
+
+MMRCurrentAuctionAveragePrice <- ggplot(Var_table, aes(x = Class, y = MMRCAAP)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "MMRCAAP") +
+  ggtitle("Current Auction Average Price")
+
+MMRCurrentAuctionCleanPrice <- ggplot(Var_table, aes(x = Class, y = MMRCACP)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "MMRCACP") +
+  ggtitle("Current Auction Clean Price")
+
+MMRCurrentRetailAveragePrice <- ggplot(Var_table, aes(x = Class, y = MMRCRAP)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "MMRCRAP") +
+  ggtitle("Current Retail Average Price")
+
+MMRCurrentRetailCleanPrice <- ggplot(Var_table, aes(x = Class, y = MMRCRCP)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "MMRCRCP") +
+  ggtitle("Current Retail Clean Price")
+
+VehBCost <- ggplot(Var_table, aes(x = Class, y = VehBCost)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "VehBCost") +
+  ggtitle("Vehical B Cost")
+
+WarrantyCost <- ggplot(Var_table, aes(x = Class, y = WarrantyCost)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "WarrantyCost") +
+  ggtitle("Warranty Cost")#high for bad buy 
+
+WheelTypeID <- ggplot(Var_table, aes(x = Class, y = WheelTypeID)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "WheelTypeID") +
+  ggtitle("Wheel Type ID")
+
+BYRNO <- ggplot(Var_table, aes(x = Class, y = BYRNO)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "BYRNO") +
+  ggtitle("Car registration number")
+
+VNZIP1 <- ggplot(Var_table, aes(x = Class, y = VNZIP1)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Class", y = "VNZIP1") +
+  ggtitle("Car ZIP number")
+
+plot_grid(VehYear, VehicleAge, VehOdo, MMRAcquisitionAuctionAveragePrice,MMRAcquisitionAuctionCleanPrice,MMRAcquisitionRetailAveragePrice, MMRAcquisitonRetailCleanPrice,MMRCurrentAuctionAveragePrice) 
+plot_grid (MMRCurrentAuctionCleanPrice,MMRCurrentRetailAveragePrice,MMRCurrentRetailCleanPrice,VehBCost,WarrantyCost,WheelTypeID,BYRNO,VNZIP1)
+```
+#Data Prepration: Checking the distribution and skweness of the numerical Variables
+```{r}
+
+#Histogram of all the numerical variables
+Car_num[,c(1:16)] %>%
+  gather(key = Variable, value = Value) %>%
+  ggplot() +
+  geom_histogram(aes(x = Value), fill = "violet") +
+  facet_wrap(~Variable, scales='free') +
+  theme_classic() +
+  theme(aspect.ratio = 0.5, axis.title = element_blank(), panel.grid = element_blank())
+#From the above output, we can identify a bell curve distribution of data for maximum amount of the data or variables. Also, we can notice that “all the pricing fields are slightly skewed to the right but its not that huge so no treatment required.
+
+#Create the histograms for all the variables to see the normal distribution.
+
+#Variable "VehYear"
+hist(Car_num$VehYear, breaks = 30, main = "Histogram of Vehical Year", xlab = "Vehical Year (years)", ylab = "Frequency")#We are observing some negative values: since month can not be negative converting it to positive
+
+#Variable "VehicleAge"
+hist(Car_num$VehicleAge, breaks = 30, main = "Histogram of Vehicle Age", xlab = "Vehical age (years)", ylab = "Frequency")#We are observing some negative values: since month can not be negative converting it to positive
+
+#Variable "VehOdo"
+hist(Car_num$VehOdo, breaks = 30, main = "Histogram of Vehical drove in km", xlab = "Vehical drove (km)", ylab = "Frequency")#We are observing some negative values: since month can not be negative converting it to positive
+
+#Variable "MMRAcquisitionAuctionAveragePrice"
+hist(Car_num$MMRAAAP, breaks = 30, main = "Histogram of avg price of car at auction", xlab = "avg price of car at auction", ylab = "Frequency")#We are observing some negative values: since month can not be negative converting it to positive
+
+#Variable "MMRAcquisitionAuctionCleanPrice"
+hist(Car_num$MMRAACP, breaks = 30, main = "Histogram of avg price of car at auction before fee", xlab = "avg price of car at auction before fee", ylab = "Frequency")#We are observing some negative values: since month can not be negative converting it to positive
+
+#Variable "MMRAcquisitionRetailAveragePrice"
+hist(Car_num$MMRARAP, breaks = 30, main = "Histogram of avg price of car bought in retail store", xlab = "avg price of car bought in retail store", ylab = "Frequency")#We are observing some negative values: since month can not be negative converting it to positive
+
+#Variable "MMRAcquisitonRetailCleanPrice"
+hist(Car_num$MMRARCP, breaks = 30, main = "Histogram of avg price of car bought in retail store before fee", xlab = "avg price of car bought in retail store before fee", ylab = "Frequency")#We are observing some negative values: since month can not be negative converting it to positive
+
+#Variable "MMRCurrentAuctionAveragePrice"
+hist(Car_num$MMRCAAP, breaks = 30, main = "Histogram of current price of the car at auction", xlab = "current price of the car at auction", ylab = "Frequency")#We are observing some negative values: since month can not be negative converting it to positive
+
+#Variable "MMRCurrentRetailAveragePrice"
+hist(Car_num$MMRCACP, breaks = 30, main = "Histogram of current price of the car at retail", xlab = "current price of the car at retail", ylab = "Frequency")#We are observing some negative values: since month can not be negative converting it to positive
+
+#Variable "MMRCurrentAuctionCleanPrice"
+hist(Car_num$MMRCRAP, breaks = 30, main = "Histogram of current price of the car at auction before fee", xlab = "current price of the car at auction before fee", ylab = "Frequency")#We are observing some negative values: since month can not be negative converting it to positive
+
+#Variable "MMRCurrentRetailCleanPrice"
+hist(Car_num$MMRCRCP, breaks = 30, main = "Histogram of current price of the car at retail before fee", xlab = "current price of the car at retail before fee", ylab = "Frequency")#We are observing some negative values: since month can not be negative converting it to positive
+
+#Variable "VehBCost"
+hist(Car_num$VehBCost, breaks = 30, main = "Histogram of B price of the car", xlab = "B price of the car", ylab = "Frequency")#We are observing some negative values: since month can not be negative converting it to positive
+
+#Variable "WarrantyCost"
+hist(Car_num$WarrantyCost, breaks = 30, main = "Histogram of Cost of car warranty", xlab = "Cost of car warranty", ylab = "Frequency")#We are observing some negative values: since month can not be negative converting it to positive
+
+#check for the Skewness of the Numerical Variables 
+Car_num1 <- Car_num[,c(2:16)]
+skewness_values <- sapply(Car_num1, skewness)
+skewness_values #most of the variables have skewness values close to zero, indicating relatively symmetric distributions. However, some variables such as WarrantyCost (skewness = 1.9145) and BYRNO (skewness = 2.1059) have larger skewness values, suggesting moderate skewness in their distributions.
+```
+#Data Exploration 1: Looking for the outliers
+```{r}
+#Creating Box Plot for all the numerical variables to see the outliers.
+my_data <- Car_num[,c(1:16,18)]
+par(mfrow = c(2,2),cex = 0.5)
+ for (i in 1:(ncol(my_data) - 1)) {
+ # Create a boxplot for the current variable by "churn"
+  boxplot(my_data[, i] ~ my_data[, ncol(my_data)], 
+          main = paste("Boxplot of", names(my_data)[i], "by", names(my_data)[ncol(my_data)]),
+          xlab = names(my_data)[ncol(my_data)], ylab = names(my_data)[i])
+} #warranty cost and Auction price fields have some outliers
+```
+#Data Visualization (2):Determining the relative importance of the primary variables in the data set using principal component analysis.
+```{r}
+library(FactoMineR)
+pca <- PCA(Car_num[,c(1:16)])
+pca <- prcomp(Car_num[,c(1:16)], scale = TRUE)
+# extract loadings
+loadings <- pca$rotation
+# print loadings for the first two PCs
+print(loadings[, 1:2])
+var <- get_pca_var(pca)
+fviz_pca_var(pca, col.var="contrib",
+gradient.cols = c("grey","yellow","purple","red","blue"),ggrepel = TRUE ) + labs( title = "PCA Variable Variance")
+
+#PC1: The first principal component (PC1) explains the largest amount of variance in the data. The variables that have higher absolute values in PC1's loadings contribute more to PC1. In this case, we can see that VehYear, VehicleAge, VehOdo, MMRAAAP, MMRAACP, MMRARAP, MMRARCP, MMRCAAP, MMRCACP, MMRCRAP, MMRCRCP, VehBCost, WheelTypeID, BYRNO, and VNZIP1 have relatively higher absolute loadings in PC1. The sign of the loadings (+/-) indicates the direction of the relationship between the original variables and PC1.
+
+#PC2: The second principal component (PC2) explains the second-largest amount of variance in the data, orthogonal to PC1. Similarly, the variables with higher absolute values in PC2's loadings contribute more to PC2. In this case, VehYear, VehicleAge, VehOdo, WarrantyCost, WheelTypeID, BYRNO, and VNZIP1 have relatively higher absolute loadings in PC2. Again, the sign of the loadings indicates the direction of the relationship between the original variables and PC2.
+```
+#Data Exploration 1: Creating the scatterplot for important variables "vehicalage, Vehodo, Warrentycost, MMRAcquisitionAuctionAveragePrice, VehBCost"
+```{r}
+pairs.panels(Car_num[,c(2,3,4,12,13)], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE # show correlation ellipses
+             )
+
+```
+#Important Categorical variables :Converting categorical values to Dummy variables for better usage
+```{r}
+Auction_MANHEIM <- ifelse(Car_data$Auction == "MANHEIM", 1,0)
+Auction_MANHEIM <- as.factor(Auction_MANHEIM)
+
+WheelType_Covers  <- ifelse(Car_data$WheelType == "Covers", 1,0)
+WheelType_Covers <- as.factor(WheelType_Covers)
+
+WheelType_Alloy  <- ifelse(Car_data$WheelType == "Alloy", 1,0)
+WheelType_Alloy <- as.factor(WheelType_Alloy)
+
+Nationality_AMERICAN  <- ifelse(Car_data$Nationality == "AMERICAN", 1,0)
+Nationality_AMERICAN <- as.factor(Nationality_AMERICAN)
+
+Nationality_topline_Asian <- ifelse(Car_data$Nationality == "'TOP LINE ASIAN'", 1,0)
+Nationality_topline_Asian <- as.factor(Nationality_topline_Asian)
+
+Size_MEDIUM <- ifelse(Car_data$Size %in% c("MEDIUM", "MEDIUM SUV"), 1, 0)
+Size_MEDIUM <- as.factor(Size_MEDIUM)
+
+Size_Large <- ifelse(Car_data$Size %in% c("LARGE", "LARGE TRUCK", "LARGE SUV"), 1, 0)
+Size_Large <- as.factor(Size_Large)
+
+Size_small <- ifelse(Car_data$Size %in% c("COMPACT", "SMALL SUV", "SMALL TRUCK"), 1, 0)
+Size_small <- as.factor(Size_small)
+
+TopThreeAmerican_GM <- ifelse(Car_data$TopThreeAmericanName %in% c("GM"), 1, 0)
+TopThreeAmerican_GM <- as.factor(TopThreeAmerican_GM)
+
+TopThreeAmerican_CHRYSLER <- ifelse(Car_data$TopThreeAmericanName %in% c("CHRYSLER"), 1, 0)
+TopThreeAmerican_CHRYSLER <- as.factor(TopThreeAmerican_CHRYSLER)
+
+TopThreeAmerican_FORD <- ifelse(Car_data$TopThreeAmericanName %in% c("FORD"), 1, 0)
+TopThreeAmerican_FORD <- as.factor(TopThreeAmerican_FORD)
+
+VNST_West <- ifelse(Car_data$VNST %in% c("AK","CA","CO","HI","ID","MT","NV","OR","UT","WA","WY"), 1, 0)
+VNST_West <- as.factor(VNST_West)
+
+VNST_SouthWest <- ifelse(Car_data$VNST %in% c("AZ","NM","OK","TX","AL","AR","FL","GA","KY","LA","MS","NC","SC","TN","VA","WV"), 1, 0)
+VNST_SouthWest <- as.factor(VNST_SouthWest)
+
+VNST_Northeast <- ifelse(Car_data$VNST %in% c("CT","DE","ME","MD","MA","NH","NJ","NY","PA","RI","VT"), 1, 0)
+VNST_Northeast <- as.factor(VNST_Northeast)
+
+VNST_Midwest <- ifelse(Car_data$VNST %in% c("IL","IN","IA","KS","MI","MN","MO","NE","ND","OH","SD","WI"), 1, 0)
+VNST_Midwest <- as.factor(VNST_Midwest)
+
+Car_data2 <- data.frame(Car_data , 
+Auction_MANHEIM = Auction_MANHEIM,
+WheelType_Covers = WheelType_Covers,
+WheelType_Alloy = WheelType_Alloy,
+Nationality_AMERICAN = Nationality_AMERICAN,
+Nationality_topline_Asian = Nationality_topline_Asian,
+Size_MEDIUM = Size_MEDIUM,
+Size_Large = Size_Large,
+Size_small = Size_small,
+TopThreeAmerican_GM =TopThreeAmerican_GM,
+TopThreeAmerican_CHRYSLER = TopThreeAmerican_CHRYSLER,
+TopThreeAmerican_FORD = TopThreeAmerican_FORD,
+VNST_West = VNST_West,
+VNST_SouthWest = VNST_SouthWest,
+VNST_Northeast = VNST_Northeast,
+VNST_Midwest = VNST_Midwest)
+```
+#Selecting the important variables for lm() and ANOVA
+```{r}
+Car_data3 <- Car_data2[,c(3,4,5,13,14,31:46)]
+t(t(names(Car_data3)))
+
+set.seed(2023)
+Norm_model <- preProcess(Car_data3, method = c("center", "scale"))
+Car_data3_norm <-predict(Norm_model,Car_data3)
+head(Car_data3_norm)
+
+str(Car_data3_norm)
+
+# Fit a linear regression model
+lm_model <- lm(Class ~ ., data = Car_data3_norm)
+summary(lm_model)
+
+#Perform ANOVA
+anova_results <- aov(Class ~ ., data = Car_data3_norm)
+summary(anova_results)
+```
+#----------------------------------- Second half stepwise selection , lm, ANOVA and PCA -----------------------------#
+
+#Features Backward selection.
+```{r}
+t(t(names(Car_data2)))
+Car_data4 <- Car_data2[,c(1:14,22,27,28,30:46)]
+Car_data4$IsOnlineSale <- as.factor(Car_data4$IsOnlineSale)
+
+set.seed(2023)
+Norm_model <- preProcess(Car_data4, method = c("center", "scale"))
+Car_data4_norm <-predict(Norm_model,Car_data4)
+head(Car_data4_norm)
+
+
+set.seed(2023)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 15)
+# Train the model
+step.model <- train(Class ~ ., data = Car_data4_norm,
+                    method = "leapBackward", 
+                    tuneGrid = data.frame(nvmax = 1:5),
+                    trControl = train.control
+                    )
+step.model$results
+summary(step.model$finalModel)
+step.model$bestTune
+coef(step.model$finalModel, 4)
+```
+
+#Features Forward selection.
+```{r}
+t(t(names(Car_data2)))
+Car_data4 <- Car_data2[,c(1:14,22,27,28,30:46)]
+Car_data4$IsOnlineSale <- as.factor(Car_data4$IsOnlineSale)
+
+set.seed(2023)
+Norm_model <- preProcess(Car_data4, method = c("center", "scale"))
+Car_data4_norm <-predict(Norm_model,Car_data4)
+head(Car_data4_norm)
+
+
+set.seed(2023)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 15)
+# Train the model
+step.model <- train(Class ~ ., data = Car_data4_norm,
+                    method = "leapForward", 
+                    tuneGrid = data.frame(nvmax = 1:5),
+                    trControl = train.control
+                    )
+step.model$results
+summary(step.model$finalModel)
+step.model$bestTune
+coef(step.model$finalModel, 4)
+```
+#After using Backward and forward stepwise method we found 4 important variables.
+#lm() and ANOVA using selected independet variables
+```{r}
+t(t(names(Car_data2)))
+Car_data5 <- Car_data2[,c(3,4,13,31,41)]
+
+set.seed(2023)
+Norm_model <- preProcess(Car_data5, method = c("center", "scale"))
+Car_data5_norm <-predict(Norm_model,Car_data5)
+head(Car_data5_norm)
+str(Car_data5_norm)
+
+# Fit a linear regression model
+lm_model <- lm(Class ~ ., data = Car_data5_norm)
+summary(lm_model)
+
+#Perform ANOVA
+anova_results <- aov(Class ~ ., data = Car_data5_norm)
+summary(anova_results)
+```
+#PCA : Determining the relative importance of the primary variables in the data set using principal component analysis.
+```{r}
+library(FactoMineR)
+
+Car_data5$TopThreeAmerican_CHRYSLER <- as.numeric(Car_data5$TopThreeAmerican_CHRYSLER)
+
+pca <- PCA(Car_data5[,-4])
+pca <- prcomp(Car_data5[,-4], scale = TRUE)
+# extract loadings
+loadings <- pca$rotation
+# print loadings for the first two PCs
+print(loadings[, 1:2])
+var <- get_pca_var(pca)
+fviz_pca_var(pca, col.var="contrib",
+gradient.cols = c("grey","yellow","purple","red","blue"),ggrepel = TRUE ) + labs( title = "PCA Variable Variance")
+```
